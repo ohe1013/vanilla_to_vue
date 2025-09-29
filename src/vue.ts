@@ -3,6 +3,7 @@
 type Effect = () => void;
 let activeEffect: Effect | null = null;
 const ITERATE_KEY = Symbol("iterate");
+
 export function effect(fn: Effect) {
   const runner = () => {
     const prev = activeEffect;
@@ -90,10 +91,9 @@ function trigger(t: object, k: PropertyKey) {
     ?.get(k)
     ?.forEach((fn) => fn());
 }
-const reactiveCache = new WeakMap<object, any>();
 export function reactive<T extends object>(raw: T): T {
   if (!isObj(raw)) return raw;
-  if (reactiveCache.has(raw)) return reactiveCache.get(raw);
+
   return new Proxy(raw, {
     get(target, key, receiver) {
       const res = Reflect.get(target, key, receiver);
@@ -135,7 +135,7 @@ export function reactive<T extends object>(raw: T): T {
       return ok;
     },
     ownKeys(t) {
-      track(t, ITERATE_KEY); // for..of / data-each 등 반복 의존성
+      track(t, ITERATE_KEY); // for..of / v-each 등 반복 의존성
       return Reflect.ownKeys(t);
     },
   });
@@ -219,19 +219,16 @@ function bindOn(el: HTMLElement, event: string, fnPath: string, scope: Scope) {
     }
   });
 }
-// === 4) data-each: <template data-each="todo in todos"> ===
+// === 4) v-each: <template v-each="todo in todos"> ===
 function parseEach(expr: string) {
   const m = expr.trim().match(/^(\w+)\s+in\s+(.+)$/);
-  if (!m) throw new Error(`Invalid data-each: ${expr}`);
+  if (!m) throw new Error(`Invalid v-each: ${expr}`);
   return { alias: m[1], listPath: m[2] };
 }
 function evalExpr(expr: string, scope: Record<string, any>) {
   try {
-    // 신뢰된 코드 전용. CSP가 엄격하면 차단될 수 있음.
-    // eslint-disable-next-line no-new-func
     return Function("scope", `with(scope){ return (${expr}); }`)(scope);
   } catch (e) {
-    console.warn("[expr error]", expr, e);
     return undefined;
   }
 }
@@ -246,7 +243,6 @@ function bindIf(tpl: HTMLTemplateElement, expr: string, scope: any) {
 
   effect(() => {
     const show = !!evalExpr(expr, scope);
-    // 현재 노드들 제거
     if (mounted.length) {
       mounted.forEach((n) => n.parentNode && n.parentNode.removeChild(n));
       mounted = [];
@@ -255,7 +251,7 @@ function bindIf(tpl: HTMLTemplateElement, expr: string, scope: any) {
     if (show) {
       // 템플릿 복제 → 내부 선언 바인딩 재귀 적용 → 앵커 뒤에 삽입
       const frag = tpl.content.cloneNode(true) as DocumentFragment;
-      mountBindings(frag, scope); // 내부 data-* 재귀 바인딩
+      mountBindings(frag, scope); // 내부 v-* 재귀 바인딩
       const nodes = Array.from(frag.childNodes);
       anchor.parentNode!.insertBefore(frag, anchor.nextSibling);
       mounted = nodes;
@@ -288,39 +284,39 @@ function bindEach(tpl: HTMLTemplateElement, expr: string, parentScope: any) {
 }
 // === 5) 스캐너: 선언 바인딩 장착 ===
 export function mountBindings(root: ParentNode, scope: any) {
-  // (A) 구조 지시자 먼저: data-each, data-if
-  root.querySelectorAll("template[data-each]").forEach((tpl) => {
+  // (A) 구조 지시자 먼저: v-each, v-if
+  root.querySelectorAll("template[v-each]").forEach((tpl) => {
     bindEach(
       tpl as HTMLTemplateElement,
-      (tpl as Element).getAttribute("data-each")!,
+      (tpl as Element).getAttribute("v-each")!,
       scope
     );
   });
-  root.querySelectorAll("template[data-if]").forEach((tpl) => {
+  root.querySelectorAll("template[v-if]").forEach((tpl) => {
     bindIf(
       tpl as HTMLTemplateElement,
-      (tpl as Element).getAttribute("data-if")!,
+      (tpl as Element).getAttribute("v-if")!,
       scope
     );
   });
 
   // (B) 나머지 일반 지시자들
-  root.querySelectorAll<HTMLElement>("[data-text]").forEach((el) => {
-    bindText(el, el.getAttribute("data-text")!, scope);
+  root.querySelectorAll<HTMLElement>("[v-text]").forEach((el) => {
+    bindText(el, el.getAttribute("v-text")!, scope);
   });
   root
-    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[data-model]")
+    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("[v-model]")
     .forEach((el) => {
-      bindModel(el, el.getAttribute("data-model")!, scope);
+      bindModel(el, el.getAttribute("v-model")!, scope);
     });
   root
     .querySelectorAll<HTMLElement>(
-      "[data-on\\:click],[data-on\\:change],[data-on\\:input]"
+      "[v-on\\:click],[v-on\\:change],[v-on\\:input]"
     )
     .forEach((el) => {
       for (const a of Array.from(el.attributes))
-        if (a.name.startsWith("data-on:"))
-          bindOn(el, a.name.slice(8), a.value, scope);
+        if (a.name.startsWith("v-on:"))
+          bindOn(el, a.name.slice(5), a.value, scope);
     });
 }
 
@@ -332,6 +328,7 @@ export function proxyRefs<T extends object>(obj: T): T {
     },
     set(t, k, v, r) {
       const old = Reflect.get(t, k, r);
+
       if (isRef(old) && !isRef(v)) {
         old.value = v;
         return true;
@@ -341,14 +338,16 @@ export function proxyRefs<T extends object>(obj: T): T {
   });
 }
 
-// Vue의 createApp 유사
-export function createApp(Component: { setup: () => any }) {
+type MiniComponent = {
+  setup: () => Record<string, any>;
+};
+
+export function createApp(Component: MiniComponent) {
   return {
     mount(root: Element | DocumentFragment) {
-      // ⚠️ 반환 전체를 reactive로 다시 감싸지 않는다! (methods는 함수 그대로)
       const scope = proxyRefs(Component.setup());
       mountBindings(root as ParentNode, scope);
-      return scope; // 디버깅/테스트용
+      return scope;
     },
   };
 }

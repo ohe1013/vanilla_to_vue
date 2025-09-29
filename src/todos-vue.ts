@@ -1,26 +1,27 @@
 import { createApp, reactive, ref } from "./vue";
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
-  <input data-model="draft" placeholder="할 일을 입력" />
-  <button data-on:click="add">추가</button>
+  <input v-model="draft" placeholder="할 일을 입력" />
+  <input v-model="draft" placeholder="할 일을 입력" />
+  <input v-model="draft" placeholder="할 일을 입력" />
+  <button v-on:click="add">추가</button>
 
-  <!-- (A) 전역 조건 -->
-  <template data-if="todos.length === 0">
-    <p>할 일이 없어요 ✨</p>
+
+  <template v-if="todos.length === 0">
+    <p>할 일이 없어요!</p>
   </template>
 
   <ul>
-    <template data-each="todo in todos">
+    <template v-each="todo in todos">
       <li>
-        <!-- (B) 행 단위 조건 -->
-        <template data-if="!todo.isEditing">
-          <span data-text="todo.text"></span>
-          <button data-on:click="toggleEdit">✎</button>
-          <button data-on:click="remove">−</button>
+        <template v-if="!todo.isEditing">
+          <span v-text="todo.text"></span>
+          <button v-on:click="toggleEdit">✎</button>
+          <button v-on:click="remove">−</button>
         </template>
-        <template data-if="todo.isEditing">
-          <input data-model="todo.text" />
-          <button data-on:click="toggleEdit">저장</button>
+        <template v-if="todo.isEditing">
+          <input v-model="todo.text" />
+          <button v-on:click="toggleEdit">저장</button>
         </template>
       </li>
     </template>
@@ -33,10 +34,10 @@ const genId = (() => {
   return () => `${Date.now()}-${n++}`;
 })();
 
-export const App = {
+const App = {
   setup() {
     const draft = ref("");
-    const todos = reactive<Todo[]>([]); // 배열은 reactive
+    const todos = reactive<Todo[]>([]);
 
     function add() {
       const v = draft.value.trim();
@@ -45,7 +46,7 @@ export const App = {
       draft.value = "";
     }
     function remove(item: Todo) {
-      const i = todos.indexOf(item);
+      const i = todos.findIndex((todo) => todo.id === item.id);
       if (i >= 0) todos.splice(i, 1);
     }
     function toggleEdit(item: Todo) {
