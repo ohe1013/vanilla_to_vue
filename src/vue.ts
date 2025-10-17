@@ -1,6 +1,6 @@
 // mini-vue-dom.ts
 // === 0) 아주 작은 반응성 코어 ===
-type Effect = () => void;
+type Effect = Function;
 let activeEffect: Effect | null = null;
 const ITERATE_KEY = Symbol("iterate");
 
@@ -135,7 +135,7 @@ export function reactive<T extends object>(raw: T): T {
       return ok;
     },
     ownKeys(t) {
-      track(t, ITERATE_KEY); // for..of / v-each 등 반복 의존성
+      track(t, ITERATE_KEY); // for..of / v-for 등 반복 의존성
       return Reflect.ownKeys(t);
     },
   });
@@ -219,16 +219,20 @@ function bindOn(el: HTMLElement, event: string, fnPath: string, scope: Scope) {
     }
   });
 }
-// === 4) v-each: <template v-each="todo in todos"> ===
+// === 4) v-for: <template v-for="todo in todos"> ===
 function parseEach(expr: string) {
   const m = expr.trim().match(/^(\w+)\s+in\s+(.+)$/);
-  if (!m) throw new Error(`Invalid v-each: ${expr}`);
+  if (!m) throw new Error(`Invalid v-for: ${expr}`);
   return { alias: m[1], listPath: m[2] };
 }
 function evalExpr(expr: string, scope: Record<string, any>) {
   try {
-    return Function("scope", `with(scope){ return (${expr}); }`)(scope);
-  } catch (e) {
+    const keys = Object.keys(scope);
+    const vals = keys.map((k) => scope[k]);
+    // strict에서도 OK
+    const fn = new Function(...keys, `return (${expr});`);
+    return fn(...vals);
+  } catch {
     return undefined;
   }
 }
@@ -284,11 +288,11 @@ function bindEach(tpl: HTMLTemplateElement, expr: string, parentScope: any) {
 }
 // === 5) 스캐너: 선언 바인딩 장착 ===
 export function mountBindings(root: ParentNode, scope: any) {
-  // (A) 구조 지시자 먼저: v-each, v-if
-  root.querySelectorAll("template[v-each]").forEach((tpl) => {
+  // (A) 구조 지시자 먼저: v-for, v-if
+  root.querySelectorAll("template[v-for]").forEach((tpl) => {
     bindEach(
       tpl as HTMLTemplateElement,
-      (tpl as Element).getAttribute("v-each")!,
+      (tpl as Element).getAttribute("v-for")!,
       scope
     );
   });

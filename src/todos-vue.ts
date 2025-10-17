@@ -12,7 +12,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   </template>
 
   <ul>
-    <template v-each="todo in todos">
+    <template v-for="todo in todos">
       <li>
         <template v-if="!todo.isEditing">
           <span v-text="todo.text"></span>
